@@ -1,69 +1,64 @@
 import numpy as np
-import asyncio
+import pandas as pd
+import pickle
 
 
-# TODO: optimize function to remove three nested arrays
-async def trainTrueVals(trueArr, percentages):
-    uniqueTrue, countsTrue = np.unique(trueArr, return_counts=True)
-    freqDictTrue = dict(zip(uniqueTrue, countsTrue))
-    totalSzTrue = len(uniqueTrue)
-    arMaxTrue = np.max(trueArr)
-    arMinTrue = np.min(trueArr)
-
-    for sz in range(2, totalSzTrue + 1):
-        for starting in range(arMinTrue - totalSzTrue, arMaxTrue + 1):
-            sum = 0
-            for i in range(starting, starting + sz + 1):
-                sum += freqDictTrue[i] if i in uniqueTrue else 0
-            for i in range(starting, starting + sz + 1):
-                # initially only storing the numertor;
-                if i not in percentages:
-                    percentages[i] = 0
-                percentages[i] += sum
+def getFreqDict(arr):
+    unique, counts = np.unique(arr, return_counts=True)
+    return dict(zip(unique, counts))
 
 
-# TODO: optimize function to remove three nested arrays
-async def trainFalseVals(falseArr, percentages):
-    uniqueFalse, countsFalse = np.unique(falseArr, return_counts=True)
-    freqDictFalse = dict(zip(uniqueFalse, countsFalse))
-    totalSzFalse = len(uniqueFalse)
-    arMaxFalse = np.max(falseArr)
-    arMinFalse = np.min(falseArr)
-
-    for sz in range(2, totalSzFalse + 1):
-        for starting in range(arMinFalse - totalSzFalse, arMaxFalse + 1):
-            sum = 0
-            for i in range(starting, starting + sz + 1):
-                sum += freqDictFalse[i] if i in uniqueFalse else 0
-            for i in range(starting, starting + sz + 1):
-                # initially only storing the numertor;
-                if i not in percentages:
-                    percentages[i] = 0
-                percentages[i] -= sum
+def subtractFreqDicts(dict1, dict2):
+    for i in dict2.keys():
+        if i not in dict1.keys():
+            dict1[i] = 0
+        dict1[i] -= dict2[i]
+    return dict1
 
 
-async def train(trueArr, falseArr):
+# TODO: optimize time complexity of fitData function
+def fitData(freqDict, model):
+    unique = list(freqDict.keys())
+    totalSz = len(unique)
+    arMax = np.max(unique)
+    arMin = np.min(unique)
+
+    for i in range(arMin - totalSz, arMax + totalSz + 1):
+        if i not in unique:
+            freqDict[i] = 0
+
+        for j in range(arMin - totalSz, arMax + totalSz + 1):
+            if j not in model.keys():
+                model[j] = 0
+
+            a = np.sqrt((arMax + totalSz) - (arMin - totalSz)) / 2
+            if (a**2 - (j - i) ** 2) < 0:
+                continue
+            model[j] += (freqDict[i] / a**2) * (a**2 - (j - i) ** 2)
+
+    return model
+
+
+def postProcess(model):
+    maxVal = float(np.max(list(model.values())))
+    for key in model.keys():
+        model[key] = float(model[key]) * 100.0 / maxVal
+    return model
+
+
+def train(trueArr, falseArr):
     """
-    trueArr: an 1D numpy array of integers only (containing the true value set), for example in case of titanic death data, give an
-    array of all deaths age [20, 21, 21, 21, 50, ...] to predict for any given age the chance of its death.
+    trueArr: an 1D numpy array of integers only (containing the true value set), for example in case of titanic death data, give an array of all deaths age [20, 21, 21, 21, 50, ...] to predict for any given age the chance of its death.
 
     falseArr: Similar to above but containing the false values
     """
+    model = {}
 
-    percentagesRaw = {}
-    trainTrueValsTask = asyncio.create_task(trainTrueVals(trueArr, percentagesRaw))
-    await trainTrueValsTask
+    freqDict = subtractFreqDicts(getFreqDict(trueArr), getFreqDict(falseArr))
+    model = fitData(freqDict, model)
 
-    trainFalseValsTask = asyncio.create_task(trainFalseVals(falseArr, percentagesRaw))
-    await trainFalseValsTask
-
-    percentagesRawMax = np.max(np.array(list(percentagesRaw.values())))
-    for key in percentagesRaw.keys():
-        percentagesRaw[key] = (float(percentagesRaw[key]) * 100) / float(
-            percentagesRawMax
-        )
-
-    return percentagesRaw
+    model = postProcess(model)
+    return model
 
 
-print(asyncio.run(train([1, 2, 3, 4, 4, 4, 5, 10], [0, 1, 4, 5, 9, 10, 11])))
+print(train([1, 2, 3, 3, 3, 4, 4, 9, 12], [1]))
